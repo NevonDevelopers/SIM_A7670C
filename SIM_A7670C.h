@@ -11,23 +11,25 @@
 
 #define OK "OK"
 #define AT "AT"
+#define MAX_SMS_LENGTH 255
 
 class SIM_A7670C
 {
-    public:
-        SIM_A7670C(uint8_t rxpin, uint8_t txpin);
-        void initialize();
-        bool connect();
-        uint8_t getResponse(const char *cmd, const char *response, int timeout);
-        void trim(char *str);
+public:
+  SIM_A7670C(SoftwareSerial &serial);
+  SIM_A7670C(HardwareSerial &serial);
+  bool connect();
+  int registerNetwork();
+  int registerGPRS();
+  char *readSMS();
+  bool sendSMS(const char *phoneNumber, const char *message);
+  bool sendCommand(const char *cmd, const char *response, int timeout);
+  const char *getResponse() const;
+  void trim(char *str);
 
-    private:
-        SoftwareSerial gsmSerial; // Instance of SoftwareSerial
-        unsigned long current_time = 0;
-        char gsm_response[256]; // Assuming maximum response length is 255 characters
-
-        uint8_t rx_pin = 2;
-        uint8_t tx_pin = 3;
+private:
+  Stream &gsmSerial;        // Reference to the serial stream (SoftwareSerial, HardwareSerial)
+  char gsmResponse[256];    // Assuming maximum response length is 255 characters
 };
 
 #endif
