@@ -20,7 +20,7 @@ public:
   SIM_A7670C(HardwareSerial &serial);
   bool connect();
   int registerNetwork();
-  int registerGPRS();
+  bool registerGPRS(int &stat, int &AcT);
   char *readSMS();
   bool sendSMS(const char *phoneNumber, const char *message);
   bool sendCommand(const char *cmd, const char *response, int timeout);
@@ -28,8 +28,8 @@ public:
   void trim(char *str);
 
 private:
-  Stream &gsmSerial;        // Reference to the serial stream (SoftwareSerial, HardwareSerial)
-  char gsmResponse[256];    // Assuming maximum response length is 255 characters
+  Stream &gsmSerial;     // Reference to the serial stream (SoftwareSerial, HardwareSerial)
+  char gsmResponse[256]; // Assuming maximum response length is 255 characters
 };
 
 #endif

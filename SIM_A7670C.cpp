@@ -59,38 +59,6 @@ int SIM_A7670C::registerNetwork()
             // The sscanf function skips the <n> part and directly reads the <status>.
             if (sscanf(response, "+CREG: %*d,%d", &status) == 1)
             {
-                // Interpretation of the status value:
-                // Interpretation is based on the AT+CREG command documentation.
-                if (status >= 0)
-                {
-                    Serial.print(F("Network status "));
-                    switch (status)
-                    {
-                    case (0):
-                        Serial.println(F("0: Not registered, the module is not searching a new operator to register to"));
-                        break;
-                    case (1):
-                        Serial.println(F("1: Registered, home network"));
-                        break;
-                    case (2):
-                        Serial.println(F("2: Not registered, but the module is searching for a new operator to register to"));
-                        break;
-                    case (3):
-                        Serial.println(F("3: Registration denied"));
-                        break;
-                    case (4):
-                        Serial.println(F("4: Unknown status"));
-                        break;
-                    case (5):
-                        Serial.println(F("5: Registered, in roaming"));
-                        break;
-                    case (6):
-                        Serial.println(F("6: Registered, in roaming"));
-                        break;
-                    default:
-                        Serial.println(F("No valid Network status"));
-                    }
-                }
                 return status; // Return the extracted status.
             }
         }
@@ -105,7 +73,7 @@ int SIM_A7670C::registerNetwork()
  *
  * @return int
  */
-int SIM_A7670C::registerGPRS()
+bool SIM_A7670C::registerGPRS(int &stat, int &AcT)
 {
     // Queries registration status in GPRS network for data transmission verification.
     if (sendCommand("AT+CGREG?", OK, 5000))
@@ -113,83 +81,18 @@ int SIM_A7670C::registerGPRS()
         // Check if the response contains +CGREG
         if (strstr(gsmResponse, "+CGREG:"))
         {
-            int n, stat, AcT;
+            int n;
             // Attempt to parse the response
             // Note: This assumes <lac> and <ci> are not needed directly, but adjust if you need them
             if (sscanf(gsmResponse, "+CGREG: %d,%d,,,%d", &n, &stat, &AcT) >= 2)
             {
-                if (stat >= 0)
-                {
-                    Serial.print(F("GPRS Network status "));
-                    switch (stat)
-                    {
-                    case (0):
-                        Serial.println(F("0: Not registered, the module is not searching a new operator to register to"));
-                        break;
-                    case (1):
-                        Serial.println(F("1: Registered, home network"));
-                        break;
-                    case (2):
-                        Serial.println(F("2: Not registered, but the module is searching for a new operator to register to"));
-                        break;
-                    case (3):
-                        Serial.println(F("3: Registration denied"));
-                        break;
-                    case (4):
-                        Serial.println(F("4: Unknown status"));
-                        break;
-                    case (5):
-                        Serial.println(F("5: Registered, in roaming"));
-                        break;
-                    case (6):
-                        Serial.println(F("6: Registered, in roaming"));
-                        break;
-                    default:
-                        Serial.println(F("No valid GPRS Network status"));
-                    }
-                }
-
-                // If AcT is successfully parsed, print it
-                if (AcT >= 0)
-                {
-                    Serial.print(F("Accessing "));
-                    switch (AcT)
-                    {
-                    case (0):
-                        Serial.println(F("0: GSM"));
-                        break;
-                    case (1):
-                        Serial.println(F("1: GPRS"));
-                        break;
-                    case (2):
-                        Serial.println(F("2: EDGE"));
-                        break;
-                    case (3):
-                        Serial.println(F("3: WCDMA (UMTS)"));
-                        break;
-                    case (4):
-                        Serial.println(F("4: HSDPA"));
-                        break;
-                    case (5):
-                        Serial.println(F("5: HSUPA"));
-                        break;
-                    case (6):
-                        Serial.println(F("6: HSPA"));
-                        break;
-                    case (7):
-                        Serial.println(F("7: LTE"));
-                        break;
-                    default:
-                        Serial.println(F("No valid Access technology"));
-                    }
-                }
-                return stat; // Return the registration status
+                return true; // Return the registration status
             }
         }
     }
 
     Serial.println(F("Failed to parse CGREG response."));
-    return -1; // Indicates failure to parse the response
+    return false; // Indicates failure to parse the response
 }
 
 /**
@@ -210,9 +113,30 @@ char *SIM_A7670C::readSMS()
             {
                 char *smsMessage = (char *)malloc(remainingLength + 1); // Allocate memory for the SMS message
                 if (smsMessage != nullptr)
-                { // Check if the allocation was successful
+                {
+                    // Check if the allocation was successful
                     strncpy(smsMessage, newlinePos + 1, remainingLength);
-                    smsMessage[remainingLength] = '\0';   // Ensure null-termination
+                    smsMessage[remainingLength] = '\0'; // Ensure null-termination
+
+                    // Find the position of "OK" in smsMessage
+                    char *okPosition = strstr(smsMessage, "OK");
+
+                    if (okPosition != nullptr)
+                    {
+                        // Calculate the length of the message without "OK"
+                        size_t messageLength = okPosition - smsMessage - 3;
+
+                        // Create a temporary buffer to store the modified message
+                        char tempMessage[messageLength + 1];
+
+                        // Copy the part of smsMessage before "OK" to tempMessage
+                        strncpy(tempMessage, smsMessage, messageLength);
+                        tempMessage[messageLength] = '\0'; // Null-terminate the string
+
+                        // Copy the modified message back to smsMessage
+                        strcpy(smsMessage, tempMessage);
+                    }
+
                     sendCommand("AT+CMGD=1,4", OK, 5000); // Delete all SMS messages to clean up
                     return smsMessage;                    // Return the dynamically allocated message
                 }
