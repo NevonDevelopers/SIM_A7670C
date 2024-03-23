@@ -8,16 +8,13 @@ SIM_A7670C::SIM_A7670C(SoftwareSerial &serial) : gsmSerial(serial) {}
 SIM_A7670C::SIM_A7670C(HardwareSerial &serial) : gsmSerial(serial) {}
 
 /**
- * @brief Initializes the GSM module by configuring its settings for optimized operation.
- * This includes disabling command echo, configuring call and message settings, and
- * ensuring the module's time is synchronized with the network. These configurations
- * are essential for efficient communication and resource management.
+ * @brief Establishes a connection with the GSM module by sending a series of AT commands.
  *
- * @return true if all commands are successfully executed, indicating the module is ready for operation.
- * @return false if any command fails, which suggests an issue with the module or its connection to the network.
+ * @return Returns true if the connection is established successfully, otherwise false.
  */
 bool SIM_A7670C::connect()
 {
+    // Array of AT commands to be sent to the GSM module
     const char *commands[] = {
         "ATE0",            // Disables command echo to improve communication speed and efficiency.
         "AT+CLIP=1",       // Enables caller line identification presentation for incoming calls.
@@ -29,70 +26,177 @@ bool SIM_A7670C::connect()
         "AT+CMGD=1,4"      // Deletes all SMS messages from memory, including read and unread messages.
     };
 
+    // Iterate through the array of commands and send each command to the GSM module
     for (const char *cmd : commands)
     {
-        if (!sendCommand(cmd, OK, 1000))
+        // Send the command and check if it executed successfully
+        if (sendCommand(cmd, OK, 1000) != ErrorCode::NO_ERROR)
         {
+            // If any command fails, return false to indicate connection failure
             return false;
         }
     }
 
+    // All commands executed successfully, return true to indicate successful connection
     return true;
 }
 
 /**
- * @brief Function to verify if the module is correctly registered for communication.
+ * @brief Queries the GSM network registration status and parses the response.
  *
- * @return int
+ * @param[out] status Reference to an integer to store the network registration status.
+ *
+ * @return Returns true if the network registration is successful, otherwise false.
  */
-int SIM_A7670C::registerNetwork()
+bool SIM_A7670C::registerNetwork(int &status)
 {
-    // Queries the GSM network registration status to verify if the module is correctly registered for communication.
-    if (sendCommand("AT+CREG?", OK, 5000))
+    // Send command to query the GSM network registration status
+    if (!sendCommand("AT+CREG?", OK, 5000))
     {
-        // Look for the "+CREG" response prefix to parse the registration status.
-        char *response = strstr(gsmResponse, "+CREG:");
-        if (response != nullptr)
-        {
-            int status;
-            // Parse the response to extract the registration status. Assumes format is "+CREG: <n>,<status>"
-            // The sscanf function skips the <n> part and directly reads the <status>.
-            if (sscanf(response, "+CREG: %*d,%d", &status) == 1)
-            {
-                return status; // Return the extracted status.
-            }
-        }
+        // Failed to send command or receive response
+        return false;
     }
-    // Log an error if the query failed or the response could not be parsed.
-    Serial.println(F("ERROR: Failed to query or parse network registration status."));
-    return -1; // Indicates an error condition, distinguishing between communication and parsing failures.
+
+    // Look for the "+CREG" response prefix in the received response
+    char *response = strstr(gsmResponse, "+CREG:");
+    if (response == nullptr)
+    {
+        // Response format doesn't match expected format
+        return false;
+    }
+
+    // Parse the response to extract the registration status
+    if (sscanf(response, "+CREG: %*d,%d", &status) != 1)
+    {
+        // Failed to parse response
+        return false;
+    }
+
+    // Check if the registration status indicates successful registration
+    switch (status)
+    {
+    case 1:
+    case 5:
+    case 6:
+        return true; // Successfully registered
+    default:
+        return false; // Not registered
+    }
 }
 
 /**
- * @brief Function to check GPRS network registration status and access technology
+ * @brief Registers the device on the GPRS network for data transmission.
  *
- * @return int
+ * @param[out] stat Reference to an integer to store the registration status.
+ * @param[out] AcT Reference to an integer to store the Access Technology.
+ *
+ * @return Returns an error code indicating the success or failure of the operation.
  */
-bool SIM_A7670C::registerGPRS(int &stat, int &AcT)
+int SIM_A7670C::registerGPRS(int &stat, int &AcT)
 {
-    // Queries registration status in GPRS network for data transmission verification.
-    if (sendCommand("AT+CGREG?", OK, 5000))
+    // Query COPS response to extract Access Technology (AcT)
+    if (sendCommand("AT+COPS?", "OK", 1000) != ErrorCode::NO_ERROR ||
+        sscanf(gsmResponse, "+COPS: %*d,%*d,\"%*[^\"]\",%d", &AcT) != 1)
     {
-        // Check if the response contains +CGREG
-        if (strstr(gsmResponse, "+CGREG:"))
-        {
-            int n;
-            // Attempt to parse the response
-            // Note: This assumes <lac> and <ci> are not needed directly, but adjust if you need them
-            if (sscanf(gsmResponse, "+CGREG: %d,%d,,,%d", &n, &stat, &AcT) >= 2)
-            {
-                return true; // Return the registration status
-            }
-        }
+        return ErrorCode::OPERATOR_ERROR;
     }
 
-    Serial.println(F("Failed to parse CGREG response."));
-    return false; // Indicates failure to parse the response
+    // Check CGATT status for packet domain registration
+    if (sendCommand("AT+CGATT?", "OK", 1000) != ErrorCode::NO_ERROR ||
+        sscanf(gsmResponse, "+CGATT: %d", &stat) != 1 || stat != 1)
+    {
+        return ErrorCode::PACKET_DOMAIN_ERROR;
+    }
+
+    // Activate PDP context for data transmission
+    if (sendCommand("AT+CGACT=1,1", "OK", 5000) != ErrorCode::NO_ERROR)
+    {
+        return ErrorCode::PDP_CONTEXT_ERROR;
+    }
+
+    // Query CGREG response for registration status and AcT
+    if (sendCommand("AT+CGREG?", "OK", 5000) != ErrorCode::NO_ERROR ||
+        sscanf(gsmResponse, "+CGREG: %*d,%d,,,%d", &stat, &AcT) < 1)
+    {
+        return ErrorCode::GPRS_NETWORK_ERROR;
+    }
+
+    return ErrorCode::NO_ERROR;
+}
+
+/**
+ * @brief Performs an HTTP GET request and retrieves the HTTP response code.
+ *
+ * @param[in] url The URL to request.
+ * @param[in] port The port to use for the request.
+ * @param[out] response_code The HTTP response code.
+ *
+ * @return Returns true if the request is successful, false otherwise.
+ */
+bool SIM_A7670C::httpGET(const char *url, const int port, int &response_code)
+{
+    // Terminate any existing HTTP service
+    sendCommand("AT+HTTPTERM", OK, 1000);
+
+    // Initialize HTTP service
+    if (sendCommand("AT+HTTPINIT", OK, 1000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to initialize HTTP service.");
+        return false;
+    }
+
+    // Set URL for GET request
+    char httpRequest[255];
+    snprintf(httpRequest, sizeof(httpRequest), "AT+HTTPPARA=\"URL\",\"%s:%d\"", url, port);
+    if (sendCommand(httpRequest, "OK", 1000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to set URL for HTTP GET request.");
+        return false;
+    }
+
+    // Set Content-Type header
+    if (sendCommand("AT+HTTPPARA=\"CONTENT\",\"text/plain\"", "OK", 1000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to set Content-Type header.");
+        return false;
+    }
+
+    // Perform HTTP GET request
+    if (sendCommand("AT+HTTPACTION=0", "+HTTPACTION:", 20000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to perform HTTP GET request.");
+        return false;
+    }
+
+    // Extract HTTP response code
+    if (sscanf(gsmResponse, "+HTTPACTION: %*d,%d", &response_code) != 1)
+    {
+        Serial.println("Failed to extract HTTP response code.");
+        return false;
+    }
+
+    // Check if the HTTP response code indicates success (200)
+    if (response_code != 200)
+    {
+        Serial.println("HTTP GET request failed with response code: " + String(response_code));
+        return false;
+    }
+
+    // Read HTTP response
+    if (sendCommand("AT+HTTPREAD=0,500", "OK", 10000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to read HTTP response.");
+        return false;
+    }
+
+    // Terminate HTTP service
+    if (sendCommand("AT+HTTPTERM", "OK", 1000) != ErrorCode::NO_ERROR)
+    {
+        Serial.println("Failed to terminate HTTP service.");
+        return false;
+    }
+
+    return true; // HTTP GET request successful
 }
 
 /**
@@ -185,42 +289,55 @@ bool SIM_A7670C::sendSMS(const char *phoneNumber, const char *message)
 }
 
 /**
- * @brief This function sends a command to the SIM A7670C 4G GSM module and waits for a specific response within a given timeout period.
+ * @brief Sends a command to the GSM module and waits for a response.
  *
- * @param cmd The AT command to send to the GSM module.
- * @param response The expected substring to look for in the module's response.
- * @param timeout he period (in milliseconds) to wait for a response.
- * @return true if the expected response is found or specific conditions are met.
- * @return false otherwise.
+ * @param cmd The command to send.
+ * @param response The expected response from the GSM module.
+ * @param timeout The maximum time to wait for the response (in milliseconds).
+ * @return Returns an error code indicating the result of the operation.
  */
-
-bool SIM_A7670C::sendCommand(const char *cmd, const char *response, int timeout)
+int SIM_A7670C::sendCommand(const char *cmd, const char *response, int timeout)
 {
-    gsmSerial.flush();                     // Clear any previous input.
-    unsigned long current_time = millis(); // Stores the start time
-    gsmSerial.println(cmd);                // Send command to GSM module
+    gsmSerial.flush();                   // Clear any previous input.
+    unsigned long start_time = millis(); // Stores the start time
+    gsmSerial.println(cmd);              // Send command to GSM module
+    Serial.println(cmd);
 
-    while (millis() - current_time < timeout)
+    int index = 0; // Index to keep track of the position in the buffer
+
+    // Clear the buffer to ensure no residual data
+    memset(gsmResponse, '\0', sizeof(gsmResponse));
+
+    while (millis() - start_time < timeout)
     {
-        if (gsmSerial.available())
+        while (gsmSerial.available())
         {
-            // Clear the buffer to ensure no residual data
-            memset(gsmResponse, '\0', sizeof(gsmResponse));
+            char c = gsmSerial.read(); // Read a character from the serial buffer
 
-            // Read response into buffer, ensuring null termination
-            gsmSerial.readBytesUntil(response, gsmResponse, sizeof(gsmResponse) - 1);
-
-            // Trim for cleaner comparison and logging
-            trim(gsmResponse);
-
-            // Check if the response contains the expected response string
-            if (strstr(gsmResponse, response) != nullptr)
+            // Character is alphanumeric, a space, or a punctuation character
+            if (isalnum(c) || isspace(c) || ispunct(c))
             {
-                return true;
+                gsmResponse[index++] = c;  // Store the character in the buffer
+                gsmResponse[index] = '\0'; // Null-terminate the string
+
+                // Check if the response buffer contains the expected response string
+                if (strstr(gsmResponse, response) != nullptr)
+                {
+                    trim(gsmResponse);           // Trim whitespace from the response
+                    Serial.println(gsmResponse); // Print the response to serial monitor
+                    return ErrorCode::NO_ERROR;  // Command executed successfully
+                }
+
+                // Check if the buffer is about to overflow
+                if (index >= sizeof(gsmResponse) - 1)
+                {
+                    // Buffer overflow, return error code
+                    return ErrorCode::BUFFER_OVERFLOW_ERROR;
+                }
             }
         }
     }
-    return false; // Return the result of the operation
+    return ErrorCode::TIMEOUT_ERROR; // Timeout waiting for response
 }
 
 /**

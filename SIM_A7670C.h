@@ -10,7 +10,6 @@
 #include <SoftwareSerial.h>
 
 #define OK "OK"
-#define AT "AT"
 #define MAX_SMS_LENGTH 255
 
 class SIM_A7670C
@@ -19,17 +18,35 @@ public:
   SIM_A7670C(SoftwareSerial &serial);
   SIM_A7670C(HardwareSerial &serial);
   bool connect();
-  int registerNetwork();
-  bool registerGPRS(int &stat, int &AcT);
+  bool registerNetwork(int &status);
+  int registerGPRS(int &stat, int &AcT);
+  int httpGET(const char *url, const int port);
   char *readSMS();
   bool sendSMS(const char *phoneNumber, const char *message);
-  bool sendCommand(const char *cmd, const char *response, int timeout);
+  int sendCommand(const char *cmd, const char *response, int timeout);
   const char *getResponse() const;
   void trim(char *str);
 
 private:
   Stream &gsmSerial;     // Reference to the serial stream (SoftwareSerial, HardwareSerial)
   char gsmResponse[256]; // Assuming maximum response length is 255 characters
+
+  enum ErrorCode
+  {
+    NO_ERROR,
+    TIMEOUT_ERROR,
+    RESPONSE_PARSE_ERROR,
+    BUFFER_OVERFLOW_ERROR,
+    GSM_NETWORK_ERROR,
+    GPRS_NETWORK_ERROR,
+    OPERATOR_ERROR,
+    PACKET_DOMAIN_ERROR,
+    PDP_CONTEXT_ERROR,
+    HTTP_ERROR,
+    HTTPINIT_ERROR,
+    HTTPPARA_ERROR,
+    HTTPACTION_ERROR
+  };
 };
 
 #endif

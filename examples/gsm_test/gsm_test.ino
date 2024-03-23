@@ -12,33 +12,33 @@ void setup()
   Serial.begin(9600);
   initializeGSM();
 
-  while (!number_registered_to_receive_sms)
-  {
-    char *smsMessage = gsm.readSMS();
+  // while (!number_registered_to_receive_sms)
+  // {
+  //   char *smsMessage = gsm.readSMS();
 
-    if (smsMessage != nullptr)
-    {
-      // Check if SMS contains "REG"
-      char *checkREG = strstr(smsMessage, "REG");
-      if (checkREG != nullptr)
-      {
-          smsMessage = checkREG + 3;
-          strcpy(phone_number, smsMessage);
-          gsm.trim(phone_number);
+  //   if (smsMessage != nullptr)
+  //   {
+  //     // Check if SMS contains "REG"
+  //     char *checkREG = strstr(smsMessage, "REG");
+  //     if (checkREG != nullptr)
+  //     {
+  //         smsMessage = checkREG + 3;
+  //         strcpy(phone_number, smsMessage);
+  //         gsm.trim(phone_number);
 
-          if (gsm.sendSMS(phone_number, "Your number is Registered."))
-          {
-            Serial.print(F("Registered "));
-            Serial.println(phone_number);
-          }
-      }
-    }
-    else
-    {
-      // If no message is available or an error occurs, print an error message
-      Serial.println(F("Failed to read SMS or no SMS available."));
-    }
-  }
+  //         if (gsm.sendSMS(phone_number, "Your number is Registered."))
+  //         {
+  //           Serial.print(F("Registered "));
+  //           Serial.println(phone_number);
+  //         }
+  //     }
+  //   }
+  //   else
+  //   {
+  //     // If no message is available or an error occurs, print an error message
+  //     Serial.println(F("Failed to read SMS or no SMS available."));
+  //   }
+  // }
 }
 
 void loop()
@@ -72,7 +72,8 @@ void initializeGSM()
   }
   Serial.println(F("GSM connected successfully"));
 
-  int network_state = gsm.registerNetwork();
+  int network_state;
+  gsm.registerNetwork(network_state);
   if (network_state >= 0)
   {
     printNetworkStatus(network_state);
@@ -83,7 +84,7 @@ void initializeGSM()
   }
 
   int gprs_state, gprs_act;
-  gsm.registerGPRS(gprs_state, gprs_act);
+  Serial.println(gsm.registerGPRS(gprs_state, gprs_act));
   if (gprs_state >= 0)
   {
     printGPRSStatus(gprs_state);
