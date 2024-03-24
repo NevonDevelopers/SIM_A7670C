@@ -1,5 +1,0 @@
-{
-    "board": "arduino:avr:uno",
-    "sketch": "examples\\gsm_test\\gsm_test.ino",
-    "port": "COM7"
-}
